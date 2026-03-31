@@ -1,0 +1,58 @@
+[hotkey]
+trigger = "f9"
+mode = "toggle"
+
+[audio]
+device = ""
+sample_rate = 16000
+channels = 1
+
+[transcription]
+model = "large-v3-turbo"
+device = "cuda"
+compute_type = "int8"
+language = ""
+vad = true
+
+[llm]
+enabled = false
+base_url = "http://localhost:11434/v1"
+api_key = ""
+model = "phi3-mini"
+timeout_seconds = 10
+prompt = """
+Clean up the following transcribed speech. Fix grammar, punctuation, and sentence structure.
+Remove any remaining filler words. Keep the meaning and tone exactly the same.
+Return only the cleaned text, nothing else.
+"""
+
+[output]
+method = "xdotool"
+fallback_to_clipboard = true
+notify_on_paste = true
+notify_on_fallback = true
+replace_strategy = "select"
+replace_timeout_seconds = 5
+replace_blacklist = [
+    "Alacritty", "kitty", "st", "urxvt", "xterm",
+    "Vim", "nvim", "Code", "Emacs",
+]
+
+[indicator]
+style = "bar"
+position = "top"
+height = 4
+width = "200"
+color = "#ff4444"
+opacity = 0.9
+
+[history]
+enabled = true
+db_path = "~/.local/share/vox/history.db"
+max_entries = 10000
+
+[sounds]
+enabled = true
+start_sound = "assets/start.wav"
+stop_sound = "assets/stop.wav"
+volume = 0.7

@@ -1,0 +1,11 @@
+{
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "strict",
+  "venvPath": ".venv",
+  "include": ["vox", "main.py"],
+  "exclude": ["tests"],
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownParameterType": false,
+  "reportUnknownVariableType": false
+}

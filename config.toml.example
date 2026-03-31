@@ -1,0 +1,249 @@
+# Vox — Configuration Reference
+#
+# This file documents every available setting. Copy this to config.toml
+# and edit the values to customise Vox.
+#
+# Lines starting with # are comments and are ignored by the parser.
+# Empty strings ("") represent "no value" / system default.
+
+# ─────────────────────────────────────────────
+# Hotkey
+# ─────────────────────────────────────────────
+[hotkey]
+
+# The key that triggers recording.
+# Supports single keys and modifier combinations separated by +.
+#
+# Single keys: "f9", "f12", "space", "a", "z"
+# Combinations: "ctrl+shift+space", "alt+f9", "ctrl+a"
+#
+# Recognised key names:
+#   Function keys: f1–f20
+#   Modifiers: ctrl, alt, shift, cmd, super, win
+#   Special: space, esc, enter, return, tab, backspace, delete,
+#            insert, home, end, page_up, page_down, up, down,
+#            left, right, pause, caps_lock, num_lock, scroll_lock,
+#            print_screen
+#   Single characters: any letter or digit (e.g. "a", "5")
+#
+# Default: "f9" — unlikely to conflict with application shortcuts.
+trigger = "f9"
+
+# Recording mode.
+# "toggle"       — press once to start, press again to stop.
+# "push_to_talk" — hold the key to record, release to stop.
+mode = "toggle"
+
+
+# ─────────────────────────────────────────────
+# Audio
+# ─────────────────────────────────────────────
+[audio]
+
+# Audio input device index.
+# "" = system default PulseAudio/PipeWire device.
+# To list available devices:
+#   python -c "import sounddevice; print(sounddevice.query_devices())"
+device = ""
+
+# Sample rate in Hz. 16000 is what Whisper expects.
+sample_rate = 16000
+
+# Number of audio channels. 1 = mono (required for Whisper).
+channels = 1
+
+
+# ─────────────────────────────────────────────
+# Transcription
+# ─────────────────────────────────────────────
+[transcription]
+
+# Whisper model size.
+# "large-v3"  — best accuracy, ~2.5GB VRAM in int8 (recommended for RTX 4050).
+# "large-v2"  — slightly older, similar VRAM.
+# "medium"    — faster, lower VRAM (~1.5GB), decent accuracy.
+# "small"     — fast, low VRAM (~1GB), acceptable for simple dictation.
+# "tiny"      — fastest, minimal VRAM, poor accuracy.
+model = "large-v3"
+
+# Compute device.
+# "cuda" = GPU (recommended), "cpu" = CPU fallback (~8s per transcription).
+device = "cuda"
+
+# Compute precision.
+# "int8"    — 8-bit quantised (best VRAM/accuracy trade-off).
+# "float16" — half precision (faster on newer GPUs, uses more VRAM).
+# "float32" — full precision (slowest, most VRAM).
+compute_type = "int8"
+
+# Language for transcription.
+# "" = auto-detect (Whisper detects language per segment).
+# Set to a language code for forced language:
+#   "en" = English, "ml" = Malayalam, "hi" = Hindi
+# Full list: https://github.com/openai/whisper#available-models-and-languages
+language = ""
+
+# Voice Activity Detection — trims silence before passing audio to Whisper.
+# Without VAD, Whisper can hallucinate words from silence.
+# Uses Silero VAD v6 bundled inside faster-whisper (no separate dependency).
+vad = true
+
+
+
+# ─────────────────────────────────────────────
+# LLM
+# ─────────────────────────────────────────────
+[llm]
+
+# Enable LLM grammar/spelling cleanup after paste.
+# When false, only filler word removal is applied.
+enabled = true
+
+# OpenAI-compatible API endpoint.
+# Vox uses the `openai` package pointed at any compatible endpoint.
+#
+# Local providers (VRAM managed by Vox with keep_alive=0):
+#   Ollama:    "http://localhost:11434/v1"
+#   LM Studio: "http://localhost:1234/v1"
+#
+# Cloud providers (no local VRAM used):
+#   Groq:        "https://api.groq.com/openai/v1"
+#   OpenRouter:  "https://openrouter.ai/api/v1"
+#   OpenAI:      "https://api.openai.com/v1"
+#
+# When base_url contains "localhost", Vox automatically passes
+# keep_alive=0 to force immediate VRAM unload after inference.
+base_url = "http://localhost:11434/v1"
+
+# API key. Leave empty if your provider doesn't require one (e.g. local Ollama).
+# If set here AND in VOX_LLM_API_KEY env var, the env var takes priority.
+# Never commit real keys to this file.
+api_key = ""
+
+# Model name — whatever string your provider uses to identify the model.
+# Examples:
+#   Ollama:     "phi3-mini", "llama3.2", "qwen2.5:7b"
+#   Groq:       "llama-3.1-8b-instant", "mixtral-8x7b-32768"
+#   OpenRouter: "google/gemini-flash-1.5", "anthropic/claude-3.5-sonnet"
+#   OpenAI:     "gpt-4o-mini", "gpt-4o"
+model = "phi3-mini"
+
+# Timeout in seconds for the LLM API call.
+# If the LLM takes longer, Vox skips cleanup and uses the filler-removed text.
+timeout_seconds = 10
+
+# System prompt sent to the LLM for grammar cleanup.
+# Keep it concise. The LLM should return only the cleaned text.
+prompt = """
+Clean up the following transcribed speech. Fix grammar, punctuation, and sentence structure.
+Remove any remaining filler words. Keep the meaning and tone exactly the same.
+Return only the cleaned text, nothing else.
+"""
+
+
+# ─────────────────────────────────────────────
+# Output
+# ─────────────────────────────────────────────
+[output]
+
+# Paste method. Currently only "xdotool" is supported (X11).
+method = "xdotool"
+
+# Fall back to clipboard copy (pyperclip) if xdotool paste fails.
+fallback_to_clipboard = true
+
+# Show a desktop notification (notify-send) after every successful paste.
+# Useful for debugging, noisy for daily use.
+notify_on_paste = false
+
+# Show a notification when clipboard fallback is used.
+notify_on_fallback = true
+
+# Replace strategy after LLM cleanup finishes.
+# "select" — default. Select the raw text backward and overwrite with cleaned text.
+# "skip"   — leave raw text in place, only update SQLite history with cleaned text.
+# "append" — append cleaned text on a new line below the raw text.
+replace_strategy = "select"
+
+# Skip replace if more than this many seconds elapsed between paste and LLM response.
+# The user has likely moved on. Clean text is copied to clipboard instead.
+replace_timeout_seconds = 5
+
+# Window classes where replace is unsafe (terminals, editors, Electron apps).
+# Vox uses `xdotool getactivewindow getwindowclassname` to detect the active window.
+# When the active window class matches any entry, replace_strategy is forced to "skip".
+# Clean text is still copied to clipboard.
+#
+# Find your window class: xdotool getactivewindow getwindowclassname
+replace_blacklist = [
+    "Alacritty", "kitty", "st", "urxvt", "xterm",
+    "Vim", "nvim", "Code", "Emacs",
+]
+
+
+# ─────────────────────────────────────────────
+# Indicator
+# ─────────────────────────────────────────────
+[indicator]
+
+# Visual indicator style while recording.
+# "bar" — thin horizontal bar at the top of the screen (tkinter, borderless).
+style = "bar"
+
+# Bar position.
+# "top"    — top edge of the primary monitor.
+# "bottom" — bottom edge.
+position = "top"
+
+# Bar height in pixels.
+height = 4
+
+# Bar width.
+# "full"    — spans the entire screen width.
+# Integer   — pixel value (e.g. 200), centered horizontally.
+width = "full"
+
+# Bar colour (hex).
+color = "#ff4444"
+
+# Bar opacity (0.0 = fully transparent, 1.0 = fully opaque).
+opacity = 0.9
+
+
+# ─────────────────────────────────────────────
+# History
+# ─────────────────────────────────────────────
+[history]
+
+# Enable SQLite transcription history.
+# Every session is saved with raw text, cleaned text, duration, word count,
+# active window title, detected language, and model used.
+# FTS5 full-text search is available on raw and clean text.
+enabled = true
+
+# Path to the SQLite database file.
+# ~ is expanded to your home directory.
+db_path = "~/.local/share/vox/history.db"
+
+# Maximum number of entries to keep. Oldest entries are deleted when this limit is reached.
+# Set to 0 for unlimited (not recommended — SQLite file will grow indefinitely).
+max_entries = 10000
+
+
+# ─────────────────────────────────────────────
+# Sounds
+# ─────────────────────────────────────────────
+[sounds]
+
+# Play audio cues on recording start and stop.
+enabled = true
+
+# Path to the start-of-recording sound file (WAV).
+# Paths are relative to the Vox project root unless absolute.
+start_sound = "assets/start.wav"
+
+# Path to the end-of-recording sound file (WAV).
+stop_sound = "assets/stop.wav"
+
+# Playback volume (0.0 = silent, 1.0 = full volume).
+volume = 0.7

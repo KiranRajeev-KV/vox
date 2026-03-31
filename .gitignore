@@ -1,0 +1,40 @@
+# Virtual environment
+.venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ruff cache
+.ruff_cache/
+
+# Pytest cache
+.pytest_cache/
+
+# Type checker caches
+.mypy_cache/
+.pyright_cache/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Environment files
+.env
+.env.*
+
+# Editor temp files
+*~
+*.swp
+*.swo
+.*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
