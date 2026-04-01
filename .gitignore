@@ -38,3 +38,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Benchmark artifacts
+tests/benchmark_charts/
+tests/benchmark_results.jsonl

@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "vox"
 version = "0.1.0"
@@ -22,11 +26,17 @@ dev = [
     "ruff",
     "pyright",
     "pre-commit",
+    "matplotlib>=3.10.8",
+    "soundfile>=0.13.1",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+markers = [
+    "benchmark: marks tests as benchmark tests (deselect with '-m \"not benchmark\"')",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
 [tool.ruff]
 line-length = 100
