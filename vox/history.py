@@ -210,33 +210,37 @@ class History:
             session: The session data to persist.
 
         Returns:
-            The database row ID of the new session.
+            The database row ID of the new session, or 0 on failure.
         """
-        assert self._conn is not None
-        cursor = self._conn.execute(
-            _INSERT_SESSION,
-            (
-                session.raw_text,
-                session.clean_text,
-                session.duration_ms,
-                session.duration_after_vad_ms,
-                session.word_count,
-                session.app_context,
-                session.language,
-                session.model_used,
-                session.transcription_latency_ms,
-                session.full_pipeline_latency_ms,
-            ),
-        )
-        row_id = cursor.lastrowid
+        try:
+            assert self._conn is not None
+            cursor = self._conn.execute(
+                _INSERT_SESSION,
+                (
+                    session.raw_text,
+                    session.clean_text,
+                    session.duration_ms,
+                    session.duration_after_vad_ms,
+                    session.word_count,
+                    session.app_context,
+                    session.language,
+                    session.model_used,
+                    session.transcription_latency_ms,
+                    session.full_pipeline_latency_ms,
+                ),
+            )
+            row_id = cursor.lastrowid
 
-        self._conn.execute(_UPDATE_STATS, (session.word_count, session.duration_ms))
+            self._conn.execute(_UPDATE_STATS, (session.word_count, session.duration_ms))
 
-        if self._config.max_entries > 0:
-            self._conn.execute(_ENFORCE_MAX, (self._config.max_entries,))
+            if self._config.max_entries > 0:
+                self._conn.execute(_ENFORCE_MAX, (self._config.max_entries,))
 
-        self._conn.commit()
-        return row_id or 0
+            self._conn.commit()
+            return row_id or 0
+        except Exception:
+            logger.exception("Failed to save session to history")
+            return 0
 
     def search(self, query: str, limit: int = 50) -> list[SessionRecord]:
         """Full-text search across raw and clean text.
@@ -246,11 +250,15 @@ class History:
             limit: Maximum number of results to return.
 
         Returns:
-            Matching sessions ordered by most recent first.
+            Matching sessions ordered by most recent first, or empty list on failure.
         """
-        assert self._conn is not None
-        rows = self._conn.execute(_SEARCH, (query, limit)).fetchall()
-        return [_row_to_record(r) for r in rows]
+        try:
+            assert self._conn is not None
+            rows = self._conn.execute(_SEARCH, (query, limit)).fetchall()
+            return [_row_to_record(r) for r in rows]
+        except Exception:
+            logger.exception("Failed to search history")
+            return []
 
     def get_recent(self, limit: int = 20) -> list[SessionRecord]:
         """Get the most recent transcription sessions.
@@ -259,35 +267,51 @@ class History:
             limit: Maximum number of results to return.
 
         Returns:
-            Sessions ordered by creation date descending.
+            Sessions ordered by creation date descending, or empty list on failure.
         """
-        assert self._conn is not None
-        rows = self._conn.execute(_GET_RECENT, (limit,)).fetchall()
-        return [_row_to_record(r) for r in rows]
+        try:
+            assert self._conn is not None
+            rows = self._conn.execute(_GET_RECENT, (limit,)).fetchall()
+            return [_row_to_record(r) for r in rows]
+        except Exception:
+            logger.exception("Failed to get recent sessions")
+            return []
 
     def get_stats(self) -> StatsRecord:
         """Get aggregate usage statistics.
 
         Returns:
-            StatsRecord with totals, or zeroes if no sessions exist.
+            StatsRecord with totals, or zeroes if no sessions exist or on failure.
         """
-        assert self._conn is not None
-        row = self._conn.execute(_GET_STATS).fetchone()
-        if row is None:
+        try:
+            assert self._conn is not None
+            row = self._conn.execute(_GET_STATS).fetchone()
+            if row is None:
+                return StatsRecord(0, 0, 0, "", "")
+            return StatsRecord(*row)
+        except Exception:
+            logger.exception("Failed to get stats")
             return StatsRecord(0, 0, 0, "", "")
-        return StatsRecord(*row)
 
     def get_count(self) -> int:
         """Get total number of sessions."""
-        assert self._conn is not None
-        row = self._conn.execute(_GET_COUNT).fetchone()
-        return row[0] if row else 0
+        try:
+            assert self._conn is not None
+            row = self._conn.execute(_GET_COUNT).fetchone()
+            return row[0] if row else 0
+        except Exception:
+            logger.exception("Failed to get session count")
+            return 0
 
     def get_avg_latency(self) -> float:
         """Get average full-pipeline latency in ms."""
-        assert self._conn is not None
-        row = self._conn.execute(_GET_AVG_LATENCY).fetchone()
-        return row[0] if row and row[0] is not None else 0.0
+        try:
+            assert self._conn is not None
+            row = self._conn.execute(_GET_AVG_LATENCY).fetchone()
+            return row[0] if row and row[0] is not None else 0.0
+        except Exception:
+            logger.exception("Failed to get average latency")
+            return 0.0
 
     def get_recent_paginated(self, limit: int = 20, offset: int = 0) -> list[SessionRecord]:
         """Get sessions with proper OFFSET/LIMIT pagination.
@@ -297,11 +321,15 @@ class History:
             offset: Number of rows to skip.
 
         Returns:
-            Sessions ordered by creation date descending.
+            Sessions ordered by creation date descending, or empty list on failure.
         """
-        assert self._conn is not None
-        rows = self._conn.execute(_GET_RECENT_PAGINATED, (limit, offset)).fetchall()
-        return [_row_to_record(r) for r in rows]
+        try:
+            assert self._conn is not None
+            rows = self._conn.execute(_GET_RECENT_PAGINATED, (limit, offset)).fetchall()
+            return [_row_to_record(r) for r in rows]
+        except Exception:
+            logger.exception("Failed to get paginated sessions")
+            return []
 
     def close(self) -> None:
         """Close the database connection."""
