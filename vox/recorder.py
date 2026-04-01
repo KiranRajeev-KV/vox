@@ -74,14 +74,20 @@ class Recorder:
             return
 
         self._chunks.clear()
-        self._stream = sd.InputStream(
-            device=self._config.device,
-            samplerate=self._config.sample_rate,
-            channels=self._config.channels,
-            dtype=np.float32,
-            callback=self._audio_callback,
-        )
-        self._stream.start()
+        try:
+            self._stream = sd.InputStream(
+                device=self._config.device,
+                samplerate=self._config.sample_rate,
+                channels=self._config.channels,
+                dtype=np.float32,
+                callback=self._audio_callback,
+            )
+            self._stream.start()
+        except Exception:
+            logger.exception("Failed to start audio recording")
+            self._stream = None
+            return
+
         self._recording = True
         logger.info(
             "Recording started (device=%s, sr=%d, ch=%d)",
@@ -97,8 +103,11 @@ class Recorder:
             return
 
         if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception:
+                logger.exception("Error stopping audio stream")
             self._stream = None
 
         self._recording = False

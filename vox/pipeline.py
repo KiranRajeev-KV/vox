@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import subprocess
 import threading
 import time
 
@@ -19,7 +20,7 @@ from vox.output import Outputter
 from vox.processor import LLMCleaner
 from vox.recorder import Recorder
 from vox.sounds import SoundCues
-from vox.transcriber import Transcriber
+from vox.transcriber import Transcriber, TranscriptionError
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,24 @@ class Pipeline:
         self._state = "TRANSCRIBING"
         try:
             return self._transcriber.transcribe(audio)
+        except TranscriptionError as exc:
+            if "CUDA" in str(exc) or "out of memory" in str(exc).lower():
+                logger.error("Whisper CUDA OOM — switch to a smaller model in config.toml")
+                try:
+                    subprocess.run(
+                        [
+                            "notify-send",
+                            "Vox",
+                            "CUDA OOM: switch to smaller model in config.toml",
+                        ],
+                        check=False,
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+            else:
+                logger.exception("Transcription failed")
+            return None
         except Exception:
             logger.exception("Transcription failed")
             return None
@@ -207,32 +226,38 @@ class Pipeline:
         transcription_latency_ms: int,
         full_pipeline_latency_ms: int,
     ) -> None:
-        """Save the session to the history database."""
+        """Save the session to the history database.
+
+        Failures are logged but never crash the pipeline.
+        """
         if self._history is None:
             return
 
-        record = SessionRecord(
-            id=None,
-            created_at="",
-            raw_text=raw_text,
-            clean_text=processed_text,
-            duration_ms=int(info.duration * 1000),
-            duration_after_vad_ms=int(info.duration_after_vad * 1000),
-            word_count=len(processed_text.split()),
-            app_context=window_class,
-            language=info.language or "unknown",
-            model_used=self._settings.transcription.model,
-            transcription_latency_ms=transcription_latency_ms,
-            full_pipeline_latency_ms=full_pipeline_latency_ms,
-        )
-        self._history.save_session(record)
-        logger.info(
-            "Session saved: %d words, %.1fs audio, lang=%s, latency=%dms",
-            record.word_count,
-            info.duration,
-            record.language,
-            full_pipeline_latency_ms,
-        )
+        try:
+            record = SessionRecord(
+                id=None,
+                created_at="",
+                raw_text=raw_text,
+                clean_text=processed_text,
+                duration_ms=int(info.duration * 1000),
+                duration_after_vad_ms=int(info.duration_after_vad * 1000),
+                word_count=len(processed_text.split()),
+                app_context=window_class,
+                language=info.language or "unknown",
+                model_used=self._settings.transcription.model,
+                transcription_latency_ms=transcription_latency_ms,
+                full_pipeline_latency_ms=full_pipeline_latency_ms,
+            )
+            self._history.save_session(record)
+            logger.info(
+                "Session saved: %d words, %.1fs audio, lang=%s, latency=%dms",
+                record.word_count,
+                info.duration,
+                record.language,
+                full_pipeline_latency_ms,
+            )
+        except Exception:
+            logger.exception("Failed to save session to history")
 
     def _llm_replace(self, text: str, raw_len: int, window_class: str, paste_time: float) -> None:
         """Background LLM cleanup and replace."""
@@ -248,7 +273,12 @@ class Pipeline:
         self._shutdown.set()
 
     def _shutdown_threads(self) -> None:
+        if self._state == "RECORDING":
+            self._recorder.stop_recording()
+            logger.info("Stopped active recording on shutdown")
+
         self._hotkey.stop()
         self._indicator.stop()
         if self._history is not None:
             self._history.close()
+        logger.info("Pipeline shut down gracefully")
