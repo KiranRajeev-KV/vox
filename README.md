@@ -19,7 +19,7 @@ A local, offline, GPU-accelerated voice-to-text tool for Linux. Audio never leav
 
 Vox is a personal voice-to-text tool for Linux. Press a hotkey, speak naturally, and your words are transcribed and pasted directly into whatever window is focused — your editor, browser, terminal, notes app, anything.
 
-It runs Whisper locally on your GPU, cleans up your speech with an LLM of your choice, and gets out of your way. No accounts, no subscriptions, no telemetry. Inspired by [WhisperFlow](https://github.com/guillaumekln/whisperflow) and [Super Whisper](https://github.com/superwhisper/super-whisper).
+It runs Whisper locally on your GPU, cleans up your speech with an LLM of your choice, and gets out of your way. No accounts, no subscriptions, no telemetry. Inspired by [Wispr Flow](https://wisprflow.ai/) and [Superwhisper](https://superwhisper.com/).
 
 ---
 
