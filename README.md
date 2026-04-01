@@ -265,8 +265,8 @@ just benchmark-single clean
 
 ### Results
 
-<!-- Add your benchmark chart image here -->
-<!-- ![Benchmark Results](assets/benchmark-chart.png) -->
+<img width="1366" height="789" alt="image" src="https://github.com/user-attachments/assets/9193493d-c499-4060-b586-933c0a51929c" />
+
 
 The benchmark suite tests 12 Whisper models including `large-v3`, `large-v3-turbo`, `medium`, `small`, `tiny`, `base`, `large-v1`, `large-v2`, and distilled variants. Metrics tracked:
 
