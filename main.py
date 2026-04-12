@@ -97,6 +97,19 @@ def parse_args() -> argparse.Namespace:
     # Usage statistics
     subparsers.add_parser("stats", help="Show usage statistics")
 
+    # Personal dictionary
+    dict_parser = subparsers.add_parser("dict", help="Manage personal vocabulary")
+    dict_sub = dict_parser.add_subparsers(dest="dict_command", help="Dictionary commands")
+
+    add_parser = dict_sub.add_parser("add", help="Add a word correction")
+    add_parser.add_argument("word", type=str, help="Word as Whisper mishears it")
+    add_parser.add_argument("correction", type=str, help="Correct spelling")
+
+    remove_parser = dict_sub.add_parser("remove", help="Remove a word correction")
+    remove_parser.add_argument("word", type=str, help="Word to remove")
+
+    dict_sub.add_parser("list", help="List all word corrections")
+
     parser.add_argument(
         "--config",
         type=Path,
@@ -143,6 +156,10 @@ def main() -> None:
 
     if args.command == "stats":
         _run_stats(args.config)
+        return
+
+    if args.command == "dict":
+        _run_dict(args.config, args.dict_command, args)
         return
 
     logger.info("Vox %s starting", vox.__version__)
@@ -332,6 +349,192 @@ def _run_web(port: int) -> None:
     logger = logging.getLogger(__name__)
     logger.info("Starting Vox web UI on http://localhost:%d", port)
     app.run(host="127.0.0.1", port=port, debug=False)
+
+
+def _resolve_config(config_path: Path | None) -> Path:
+    """Return the path to config.toml, using default if not specified."""
+    if config_path:
+        return config_path
+    # Check working directory first, then fall back to project root
+    for candidate in [Path("config.toml"), Path(__file__).parent / "config.toml"]:
+        if candidate.exists():
+            return candidate.resolve()
+    print("config.toml not found. Create one from config.toml.example.", file=sys.stderr)
+    sys.exit(1)
+
+
+def _read_dict_section(path: Path) -> dict[str, str]:
+    """Parse only the [dictionary] replacements from config.toml as text.
+
+    Returns a dict of {misheard: correction}.
+    """
+    replacements: dict[str, str] = {}
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+    except OSError:
+        return replacements
+
+    in_replacements = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Detect section boundaries
+        if stripped.startswith("[") and not stripped.startswith("[["):
+            if stripped == "[dictionary]":
+                in_replacements = False
+                continue
+            elif stripped == "[dictionary.replacements]":
+                in_replacements = True
+                continue
+            else:
+                in_replacements = False
+                continue
+
+        # Parse replacements
+        if in_replacements and "=" in stripped:
+            # Format: "misheard" = "correction"
+            parts = stripped.split("=", 1)
+            if len(parts) == 2:
+                key = parts[0].strip().strip('"')
+                value = parts[1].strip().strip('"')
+                replacements[key] = value
+
+    return replacements
+
+
+def _update_dict_section(path: Path, replacements: dict[str, str]) -> None:
+    """Update the [dictionary] replacements in config.toml, preserving all other content.
+
+    If the section doesn't exist, appends it to the end of the file.
+    """
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+    except OSError as e:
+        print(f"Failed to read config.toml: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Find where the replacements section is (or should go)
+    in_replacements = False
+    replace_start = -1
+    replace_end = -1
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+
+        if stripped.startswith("[") and not stripped.startswith("[["):
+            if stripped == "[dictionary.replacements]":
+                in_replacements = True
+                replace_start = i + 1
+                continue
+            elif stripped == "[dictionary]":
+                in_replacements = False
+                continue
+            else:
+                if in_replacements:
+                    replace_end = i
+                    in_replacements = False
+                continue
+
+        if in_replacements and "=" in stripped:
+            # This is a replacement line — mark for removal
+            if replace_end == -1:
+                replace_start = i  # first replacement line
+            replace_end = i + 1  # one past last replacement
+
+    # Build new replacements block
+    if replacements:
+        new_block = ["[dictionary.replacements]\n"]
+        for key, value in sorted(replacements.items()):
+            new_block.append(f'"{key}" = "{value}"\n')
+    else:
+        new_block = []
+
+    if replace_start >= 0 and replace_end >= 0:
+        # Replace existing section
+        lines[replace_start:replace_end] = new_block
+        # If no replacements, remove the entire [dictionary.replacements] header too
+        if not new_block:
+            # Find and remove the [dictionary.replacements] line
+            for i in range(replace_start - 1, -1, -1):
+                if lines[i].strip() == "[dictionary.replacements]":
+                    lines.pop(i)
+                    # Also remove blank lines before it
+                    while i > 0 and lines[i - 1].strip() == "":
+                        lines.pop(i - 1)
+                        i -= 1
+                    break
+    elif replace_start >= 0 and replace_end < 0:
+        # Section header exists but no content — append after header
+        lines[replace_start:replace_start] = new_block
+    else:
+        # No dictionary section at all — append to end
+        if lines and not lines[-1].endswith("\n"):
+            lines.append("\n")
+        # Only write [dictionary] header if we have replacements
+        if replacements:
+            lines.append("[dictionary]\n")
+            lines.extend(new_block)
+
+    try:
+        with open(path, "w") as f:
+            f.writelines(lines)
+    except OSError as e:
+        print(f"Failed to write config.toml: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _run_dict(config_path: Path | None, command: str | None, args: argparse.Namespace) -> None:
+    """Manage personal vocabulary corrections in config.toml."""
+    if not command:
+        print("Usage: vox dict <add|remove|list>", file=sys.stderr)
+        sys.exit(1)
+
+    config_file = _resolve_config(config_path)
+    replacements = _read_dict_section(config_file)
+
+    if command == "add":
+        word = args.word.strip()
+        correction = args.correction.strip()
+        if not word or not correction:
+            print("Error: word and correction cannot be empty.", file=sys.stderr)
+            sys.exit(1)
+        if word in replacements:
+            old = replacements[word]
+            print(f"Updated: {word!r} → {correction!r} (was: {old!r})")
+        else:
+            print(f"Added: {word!r} → {correction!r}")
+        replacements[word] = correction
+        _update_dict_section(config_file, replacements)
+
+    elif command == "remove":
+        word = args.word.strip()
+        if not word:
+            print("Error: word cannot be empty.", file=sys.stderr)
+            sys.exit(1)
+        if word in replacements:
+            del replacements[word]
+            _update_dict_section(config_file, replacements)
+            print(f"Removed: {word!r}")
+        else:
+            print(f"Not found: {word!r}")
+            sys.exit(1)
+
+    elif command == "list":
+        if not replacements:
+            print("No vocabulary corrections defined.")
+            return
+        print(f"{'Misheard':<20}  {'Correction'}")
+        print("-" * 40)
+        for word, correction in sorted(replacements.items()):
+            print(f"{word:<20}  {correction}")
+        print(f"\n{len(replacements)} correction{'s' if len(replacements) != 1 else ''} defined.")
+
+    else:
+        print(f"Unknown dictionary command: {command}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
