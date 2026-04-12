@@ -18,6 +18,7 @@ from vox.config import (
     OutputSettings,
     Settings,
     SoundsSettings,
+    StreamingSettings,
     TranscriptionSettings,
 )
 
@@ -106,6 +107,12 @@ enabled = true
 start_sound = "assets/start.wav"
 stop_sound = "assets/stop.wav"
 volume = 0.7
+
+[streaming]
+enabled = false
+model = "large-v2"
+chunk_size_ms = 300
+beam_size = 0
 """)
     return config_path
 
@@ -227,6 +234,17 @@ def make_dictionary_settings(**kwargs: Any) -> DictionarySettings:
     return DictionarySettings(**defaults)
 
 
+def make_streaming_settings(**kwargs: Any) -> StreamingSettings:
+    defaults: dict[str, Any] = {
+        "enabled": False,
+        "model": "large-v2",
+        "chunk_size_ms": 300,
+        "beam_size": 0,
+    }
+    defaults.update(kwargs)
+    return StreamingSettings(**defaults)
+
+
 def make_full_settings(**kwargs: Any) -> Settings:
     return Settings(
         hotkey=kwargs.get("hotkey", make_hotkey_settings()),
@@ -238,4 +256,5 @@ def make_full_settings(**kwargs: Any) -> Settings:
         history=kwargs.get("history", make_history_settings()),
         sounds=kwargs.get("sounds", make_sounds_settings()),
         dictionary=kwargs.get("dictionary", make_dictionary_settings()),
+        streaming=kwargs.get("streaming", make_streaming_settings()),
     )

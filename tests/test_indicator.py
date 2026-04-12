@@ -107,3 +107,37 @@ class TestStop:
         config = _make_indicator_settings()
         indicator = Indicator(config)
         indicator.stop()
+
+
+class TestShowText:
+    def test_show_text_puts_in_queue(self) -> None:
+        config = _make_indicator_settings()
+        indicator = Indicator(config)
+        indicator.show_text("hello world")
+        cmd = indicator._queue.get_nowait()
+        assert cmd.startswith("show_text:")
+        assert cmd.endswith("hello world")
+
+    def test_show_text_truncates_long_text(self) -> None:
+        config = _make_indicator_settings()
+        indicator = Indicator(config)
+        long_text = "x" * 200
+        indicator.show_text(long_text)
+        cmd = indicator._queue.get_nowait()
+        # Prefix "show_text:" + 120 chars + "..."
+        assert len(cmd) == len("show_text:") + Indicator._MAX_TEXT_LENGTH + 3
+        assert cmd.endswith("...")
+
+    def test_show_text_noop_when_unavailable(self) -> None:
+        config = _make_indicator_settings()
+        indicator = Indicator(config)
+        indicator._available = False
+        indicator.show_text("hello")
+        assert indicator._queue.empty()
+
+    def test_show_text_queue_full_does_not_crash(self) -> None:
+        config = _make_indicator_settings()
+        indicator = Indicator(config)
+        indicator._queue = queue.Queue(maxsize=1)
+        indicator._queue.put_nowait("show")
+        indicator.show_text("overflow")  # Should silently drop

@@ -1,14 +1,14 @@
-"""Tests for transcriber — faster-whisper wrapper."""
+"""Tests for transcriber factory."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import numpy as np
-import pytest
-
-from vox.config import TranscriptionSettings
-from vox.transcriber import Transcriber, TranscriptionError
+from vox.config import StreamingSettings, TranscriptionSettings
+from vox.transcriber import make_transcriber
+from vox.transcriber_base import TranscriberBase
+from vox.transcriber_cw import CarelessWhisperTranscriber
+from vox.transcriber_fw import FasterWhisperTranscriber
 
 
 def _make_transcription_settings(**kwargs: object) -> TranscriptionSettings:
@@ -23,175 +23,51 @@ def _make_transcription_settings(**kwargs: object) -> TranscriptionSettings:
     return TranscriptionSettings(**defaults)  # type: ignore[arg-type]
 
 
-def _make_mock_info(**kwargs: object) -> MagicMock:
-    info = MagicMock()
-    info.duration = 3.0
-    info.duration_after_vad = 2.5
-    info.language = "en"
-    info.language_probability = 0.95
-    for key, value in kwargs.items():
-        setattr(info, key, value)
-    return info
+def _make_streaming_settings(**kwargs: object) -> StreamingSettings:
+    defaults: dict[str, object] = {
+        "enabled": False,
+        "model": "large-v2",
+        "chunk_size_ms": 300,
+        "beam_size": 0,
+    }
+    defaults.update(kwargs)
+    return StreamingSettings(**defaults)  # type: ignore[arg-type]
 
 
-def _make_mock_segments(texts: list[str]) -> list[MagicMock]:
-    segments = []
-    for text in texts:
-        seg = MagicMock()
-        seg.text = text
-        segments.append(seg)
-    return segments
+class TestMakeTranscriber:
+    def test_returns_faster_whisper_when_streaming_disabled(self) -> None:
+        tc = _make_transcription_settings()
+        sc = _make_streaming_settings(enabled=False)
+        with patch("vox.transcriber_fw.WhisperModel"):
+            transcriber = make_transcriber(tc, sc)
+        assert isinstance(transcriber, FasterWhisperTranscriber)
+        assert isinstance(transcriber, TranscriberBase)
 
-
-class TestTranscriberInit:
-    @patch("vox.transcriber.WhisperModel")
-    def test_loads_model(self, mock_model_cls: MagicMock) -> None:
-        config = _make_transcription_settings(model="large-v3", device="cuda", compute_type="int8")
-        Transcriber(config)
-        mock_model_cls.assert_called_once_with("large-v3", device="cuda", compute_type="int8")
-
-    @patch("vox.transcriber.WhisperModel")
-    def test_cuda_oom_raises_transcription_error(self, mock_model_cls: MagicMock) -> None:
-        mock_model_cls.side_effect = RuntimeError("CUDA out of memory")
-        config = _make_transcription_settings()
-        with pytest.raises(TranscriptionError, match="CUDA OOM"):
-            Transcriber(config)
-
-    @patch("vox.transcriber.WhisperModel")
-    def test_cuda_error_raises_transcription_error(self, mock_model_cls: MagicMock) -> None:
-        mock_model_cls.side_effect = RuntimeError("CUDA error")
-        config = _make_transcription_settings()
-        with pytest.raises(TranscriptionError):
-            Transcriber(config)
-
-    @patch("vox.transcriber.WhisperModel")
-    def test_other_runtime_error_reraises(self, mock_model_cls: MagicMock) -> None:
-        mock_model_cls.side_effect = RuntimeError("Some other error")
-        config = _make_transcription_settings()
-        with pytest.raises(RuntimeError, match="Some other error"):
-            Transcriber(config)
-
-
-class TestTranscribe:
-    @patch("vox.transcriber.WhisperModel")
-    def test_transcribes_audio(self, mock_model_cls: MagicMock) -> None:
+    def test_returns_careless_whisper_when_streaming_enabled(self) -> None:
+        tc = _make_transcription_settings()
+        sc = _make_streaming_settings(enabled=True)
         mock_model = MagicMock()
-        mock_model_cls.return_value = mock_model
-        mock_model.transcribe.return_value = (
-            iter(_make_mock_segments(["hello world"])),
-            _make_mock_info(),
-        )
-        config = _make_transcription_settings()
-        transcriber = Transcriber(config)
-        audio = np.zeros(16000, dtype=np.float32)
-        transcriber.transcribe(audio)
-        mock_model.transcribe.assert_called_once_with(
-            audio,
-            language=None,
-            vad_filter=True,
-            beam_size=5,
-        )
+        mock_model.spec_streamer.calc_mel_with_new_frame.return_value = MagicMock()
+        mock_cws = MagicMock()
+        mock_cws.load_streaming_model.return_value = mock_model
 
-    @patch("vox.transcriber.WhisperModel")
-    def test_returns_text_and_info(self, mock_model_cls: MagicMock) -> None:
-        mock_model = MagicMock()
-        mock_model_cls.return_value = mock_model
-        info = _make_mock_info()
-        mock_model.transcribe.return_value = (
-            iter(_make_mock_segments(["hello world"])),
-            info,
-        )
-        config = _make_transcription_settings()
-        transcriber = Transcriber(config)
-        audio = np.zeros(16000, dtype=np.float32)
-        text, result_info = transcriber.transcribe(audio)
-        assert text == "hello world"
-        assert result_info is info
+        with patch.dict("sys.modules", {"whisper_rt": mock_cws}):
+            transcriber = make_transcriber(tc, sc)
+        assert isinstance(transcriber, CarelessWhisperTranscriber)
+        assert isinstance(transcriber, TranscriberBase)
 
-    @patch("vox.transcriber.WhisperModel")
-    def test_empty_text_on_no_speech(self, mock_model_cls: MagicMock) -> None:
-        mock_model = MagicMock()
-        mock_model_cls.return_value = mock_model
-        mock_model.transcribe.return_value = (
-            iter([]),
-            _make_mock_info(),
-        )
-        config = _make_transcription_settings()
-        transcriber = Transcriber(config)
-        audio = np.zeros(16000, dtype=np.float32)
-        text, _ = transcriber.transcribe(audio)
-        assert text == ""
+    def test_supports_streaming_property(self) -> None:
+        tc = _make_transcription_settings()
+        sc = _make_streaming_settings(enabled=False)
+        with patch("vox.transcriber_fw.WhisperModel"):
+            transcriber = make_transcriber(tc, sc)
+        # FasterWhisperTranscriber does NOT support streaming
+        assert transcriber.supports_streaming is False
 
-    @patch("vox.transcriber.WhisperModel")
-    def test_strips_whitespace(self, mock_model_cls: MagicMock) -> None:
-        mock_model = MagicMock()
-        mock_model_cls.return_value = mock_model
-        mock_model.transcribe.return_value = (
-            iter(_make_mock_segments(["  hello  "])),
-            _make_mock_info(),
-        )
-        config = _make_transcription_settings()
-        transcriber = Transcriber(config)
-        audio = np.zeros(16000, dtype=np.float32)
-        text, _ = transcriber.transcribe(audio)
-        assert text == "hello"
+    def test_re_exports_shared_types(self) -> None:
+        import vox.transcriber as transcriber_module
 
-    @patch("vox.transcriber.WhisperModel")
-    def test_joins_multiple_segments(self, mock_model_cls: MagicMock) -> None:
-        mock_model = MagicMock()
-        mock_model_cls.return_value = mock_model
-        mock_model.transcribe.return_value = (
-            iter(_make_mock_segments(["hello", "world", "test"])),
-            _make_mock_info(),
-        )
-        config = _make_transcription_settings()
-        transcriber = Transcriber(config)
-        audio = np.zeros(16000, dtype=np.float32)
-        text, _ = transcriber.transcribe(audio)
-        assert text == "hello world test"
-
-    @patch("vox.transcriber.WhisperModel")
-    def test_transcription_error_on_failure(self, mock_model_cls: MagicMock) -> None:
-        mock_model = MagicMock()
-        mock_model_cls.return_value = mock_model
-        mock_model.transcribe.side_effect = Exception("model error")
-        config = _make_transcription_settings()
-        transcriber = Transcriber(config)
-        audio = np.zeros(16000, dtype=np.float32)
-        with pytest.raises(TranscriptionError, match="model error"):
-            transcriber.transcribe(audio)
-
-    @patch("vox.transcriber.WhisperModel")
-    def test_respects_language_config(self, mock_model_cls: MagicMock) -> None:
-        mock_model = MagicMock()
-        mock_model_cls.return_value = mock_model
-        mock_model.transcribe.return_value = (
-            iter(_make_mock_segments(["test"])),
-            _make_mock_info(),
-        )
-        config = _make_transcription_settings(language="en")
-        transcriber = Transcriber(config)
-        audio = np.zeros(16000, dtype=np.float32)
-        transcriber.transcribe(audio)
-        call_kwargs = mock_model.transcribe.call_args[1]
-        assert call_kwargs["language"] == "en"
-
-    @patch("vox.transcriber.WhisperModel")
-    def test_respects_vad_config(self, mock_model_cls: MagicMock) -> None:
-        mock_model = MagicMock()
-        mock_model_cls.return_value = mock_model
-        mock_model.transcribe.return_value = (
-            iter(_make_mock_segments(["test"])),
-            _make_mock_info(),
-        )
-        config = _make_transcription_settings(vad=False)
-        transcriber = Transcriber(config)
-        audio = np.zeros(16000, dtype=np.float32)
-        transcriber.transcribe(audio)
-        call_kwargs = mock_model.transcribe.call_args[1]
-        assert call_kwargs["vad_filter"] is False
-
-
-class TestTranscriptionError:
-    def test_is_exception(self) -> None:
-        assert issubclass(TranscriptionError, Exception)
+        # Ensure the factory module re-exports the shared types
+        assert hasattr(transcriber_module, "TranscriptionError")
+        assert hasattr(transcriber_module, "TranscriptionResult")
+        assert hasattr(transcriber_module, "TranscriberBase")

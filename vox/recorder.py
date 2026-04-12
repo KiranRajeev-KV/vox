@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import queue
+from collections.abc import Callable
 
 import numpy as np
 import sounddevice as sd
@@ -54,7 +55,19 @@ class Recorder:
         self._chunks: list[np.ndarray] = []
         self._stream: sd.InputStream | None = None
         self._recording = False
+        self._streaming_callback: Callable[[np.ndarray], None] | None = None
         validate_device(config.device)
+
+    def set_streaming_callback(self, callback: Callable[[np.ndarray], None] | None) -> None:
+        """Set or clear the streaming audio callback.
+
+        The callback is invoked from the sounddevice real-time callback
+        thread with each captured audio chunk (already flattened to 1D).
+
+        Args:
+            callback: Function to call with each audio chunk, or None to clear.
+        """
+        self._streaming_callback = callback
 
     def _audio_callback(
         self,
@@ -65,7 +78,12 @@ class Recorder:
     ) -> None:
         if status:
             logger.debug("sounddevice callback status: %s", status)
-        self._chunks.append(indata.copy())
+        chunk = indata.copy()  # Single copy, reused for both paths
+        self._chunks.append(chunk)
+        # Also push to streaming callback if registered.
+        if self._streaming_callback is not None:
+            audio_1d = chunk if chunk.ndim == 1 else chunk.flatten()
+            self._streaming_callback(audio_1d)
 
     def start_recording(self) -> None:
         """Start capturing audio from the microphone."""

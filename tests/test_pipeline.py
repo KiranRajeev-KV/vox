@@ -23,6 +23,7 @@ def _make_mock_settings(**kwargs: object) -> Settings:
         make_llm_settings,
         make_output_settings,
         make_sounds_settings,
+        make_streaming_settings,
         make_transcription_settings,
     )
 
@@ -36,6 +37,7 @@ def _make_mock_settings(**kwargs: object) -> Settings:
         "history": make_history_settings(enabled=True),
         "sounds": make_sounds_settings(),
         "dictionary": make_dictionary_settings(),
+        "streaming": make_streaming_settings(),
     }
     defaults.update(kwargs)
     return Settings(**defaults)  # type: ignore[arg-type]
@@ -50,6 +52,16 @@ def _make_mock_info(**kwargs: object) -> MagicMock:
     for key, value in kwargs.items():
         setattr(info, key, value)
     return info
+
+
+def _make_mock_transcription_result(**kwargs: object) -> MagicMock:
+    """Create a mock TranscriptionResult with sensible defaults."""
+    result = MagicMock()
+    result.text = "hello world"
+    result.info = _make_mock_info()
+    for key, value in kwargs.items():
+        setattr(result, key, value)
+    return result
 
 
 def _make_pipeline(
@@ -81,6 +93,7 @@ def _make_pipeline(
     mock_recorder = MagicMock()
     if mock_transcriber is None:
         mock_transcriber = MagicMock()
+        mock_transcriber.transcribe.return_value = _make_mock_transcription_result()
     if mock_outputter is None:
         mock_outputter = MagicMock()
     if mock_llm_cleaner is None:
@@ -104,7 +117,7 @@ def _make_pipeline(
 
     with (
         patch("vox.pipeline.Recorder", return_value=mock_recorder),
-        patch("vox.pipeline.Transcriber", return_value=mock_transcriber),
+        patch("vox.pipeline.make_transcriber", return_value=mock_transcriber),
         patch("vox.pipeline.Outputter", return_value=mock_outputter),
         patch("vox.pipeline.LLMCleaner", return_value=mock_llm_cleaner),
         patch("vox.pipeline.Indicator", return_value=mock_indicator),
@@ -137,7 +150,7 @@ class TestPipelineInit:
         settings = _make_mock_settings(history=make_history_settings(enabled=False))
         with (
             patch("vox.pipeline.Recorder", return_value=MagicMock()),
-            patch("vox.pipeline.Transcriber", return_value=MagicMock()),
+            patch("vox.pipeline.make_transcriber", return_value=MagicMock()),
             patch("vox.pipeline.Outputter", return_value=MagicMock()),
             patch("vox.pipeline.LLMCleaner", return_value=MagicMock()),
             patch("vox.pipeline.Indicator", return_value=MagicMock()),
@@ -162,10 +175,7 @@ class TestStateTransitions:
         pipeline._state = "RECORDING"
         audio = np.zeros(16000, dtype=np.float32)
         pipeline._audio_queue.put(audio)
-        mocks["transcriber"].transcribe.return_value = (
-            "hello world",
-            _make_mock_info(),
-        )
+        mocks["transcriber"].transcribe.return_value = _make_mock_transcription_result()
         mocks["outputter"].paste.return_value = 11
         mocks["outputter"].get_active_window_class.return_value = "test-app"
         pipeline._handle_command("stop")
@@ -211,7 +221,7 @@ class TestAudioProcessing:
         pipeline._state = "RECORDING"
         audio = np.zeros(16000, dtype=np.float32)
         pipeline._audio_queue.put(audio)
-        mocks["transcriber"].transcribe.return_value = ("", _make_mock_info())
+        mocks["transcriber"].transcribe.return_value = _make_mock_transcription_result(text="")
         pipeline._handle_command("stop")
         assert pipeline._state == "IDLE"
         mocks["outputter"].paste.assert_not_called()
@@ -227,10 +237,7 @@ class TestAudioProcessing:
         pipeline._state = "RECORDING"
         audio = np.zeros(16000, dtype=np.float32)
         pipeline._audio_queue.put(audio)
-        mocks["transcriber"].transcribe.return_value = (
-            "hello world",
-            _make_mock_info(),
-        )
+        mocks["transcriber"].transcribe.return_value = _make_mock_transcription_result()
         mocks["outputter"].paste.return_value = 11
         mocks["outputter"].get_active_window_class.return_value = "test-app"
         pipeline._handle_command("stop")
@@ -242,10 +249,7 @@ class TestAudioProcessing:
         pipeline._state = "RECORDING"
         audio = np.zeros(16000, dtype=np.float32)
         pipeline._audio_queue.put(audio)
-        mocks["transcriber"].transcribe.return_value = (
-            "hello world",
-            _make_mock_info(),
-        )
+        mocks["transcriber"].transcribe.return_value = _make_mock_transcription_result()
         mocks["outputter"].paste.return_value = 11
         mocks["outputter"].get_active_window_class.return_value = "test-app"
         pipeline._handle_command("stop")
@@ -261,10 +265,7 @@ class TestLLMReplacement:
         pipeline._state = "RECORDING"
         audio = np.zeros(16000, dtype=np.float32)
         pipeline._audio_queue.put(audio)
-        mocks["transcriber"].transcribe.return_value = (
-            "hello world",
-            _make_mock_info(),
-        )
+        mocks["transcriber"].transcribe.return_value = _make_mock_transcription_result()
         mocks["outputter"].paste.return_value = 11
         mocks["outputter"].get_active_window_class.return_value = "test-app"
         pipeline._handle_command("stop")
@@ -276,10 +277,7 @@ class TestLLMReplacement:
         pipeline._state = "RECORDING"
         audio = np.zeros(16000, dtype=np.float32)
         pipeline._audio_queue.put(audio)
-        mocks["transcriber"].transcribe.return_value = (
-            "hello world",
-            _make_mock_info(),
-        )
+        mocks["transcriber"].transcribe.return_value = _make_mock_transcription_result()
         mocks["outputter"].paste.return_value = 11
         mocks["outputter"].get_active_window_class.return_value = "test-app"
         active_before = threading.active_count()
@@ -326,9 +324,8 @@ class TestIndicatorsAndSounds:
         pipeline._state = "RECORDING"
         audio = np.zeros(16000, dtype=np.float32)
         pipeline._audio_queue.put(audio)
-        mocks["transcriber"].transcribe.return_value = (
-            "hello",
-            _make_mock_info(),
+        mocks["transcriber"].transcribe.return_value = _make_mock_transcription_result(
+            text="hello",
         )
         mocks["outputter"].paste.return_value = 5
         mocks["outputter"].get_active_window_class.return_value = "test-app"

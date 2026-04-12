@@ -9,7 +9,6 @@ import threading
 import time
 
 import numpy as np
-from faster_whisper.transcribe import TranscriptionInfo
 from openai import OpenAI
 
 from vox.config import Settings
@@ -21,7 +20,8 @@ from vox.output import Outputter
 from vox.processor import LLMCleaner
 from vox.recorder import Recorder
 from vox.sounds import SoundCues
-from vox.transcriber import Transcriber, TranscriptionError
+from vox.transcriber import TranscriptionError, make_transcriber
+from vox.transcriber_base import TranscriberBase, TranscriptionInfo, TranscriptionResult
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,9 @@ class Pipeline:
         self._audio_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
 
         self._recorder = Recorder(settings.audio, self._audio_queue)
-        self._transcriber = Transcriber(settings.transcription)
+        self._transcriber: TranscriberBase = make_transcriber(
+            settings.transcription, settings.streaming
+        )
         self._corrector = VocabularyCorrector(settings.dictionary)
         self._outputter = Outputter(settings.output)
         self._llm_cleaner = LLMCleaner(settings.llm)
@@ -52,6 +54,12 @@ class Pipeline:
         self._sound_cues = SoundCues(settings.sounds)
         self._hotkey = HotkeyListener(settings.hotkey, self._control_queue)
         self._history = History(settings.history) if settings.history.enabled else None
+
+        # Streaming state
+        self._streaming_enabled = settings.streaming.enabled
+        self._streamer_thread: threading.Thread | None = None
+        self._streamer_stop = threading.Event()
+        self._streaming_result: TranscriptionResult | None = None
 
     def run(self) -> None:
         """Start the pipeline and enter the main loop."""
@@ -124,52 +132,127 @@ class Pipeline:
             self._indicator.show()
             self._sound_cues.play_start()
             self._recorder.start_recording()
+            if self._streaming_enabled:
+                self._start_streaming()
 
         elif command == "stop" and self._state == "RECORDING":
             self._indicator.hide()
             self._sound_cues.play_stop()
             self._recorder.stop_recording()
+            if self._streaming_enabled:
+                self._stop_streaming()
             self._process_audio()
 
         elif command == "shutdown":
             self._shutdown.set()
 
-    def _process_audio(self) -> None:
-        """Process recorded audio through the full pipeline."""
+    def _start_streaming(self) -> None:
+        """Start the streaming transcription thread."""
+        self._streamer_stop.clear()
+        self._streaming_result = None
         try:
-            audio = self._audio_queue.get(timeout=30)
-        except queue.Empty:
-            logger.error("No audio received after stop signal")
-            self._state = "IDLE"
+            self._transcriber.start_streaming()
+        except TranscriptionError:
+            logger.warning("Failed to start streaming, falling back to offline mode")
+            self._streaming_enabled = False
             return
 
+        # Register audio callback on the recorder to feed streaming directly.
+        # Drain the queue AFTER streaming is confirmed working, so that
+        # audio recorded before streaming started doesn't block the offline path.
+        while True:
+            try:
+                self._audio_queue.get_nowait()
+            except queue.Empty:
+                break
+        self._recorder.set_streaming_callback(self._transcriber.feed_chunk)
+
+        self._streamer_thread = threading.Thread(
+            target=self._streamer_loop,
+            name="StreamerThread",
+            daemon=True,
+        )
+        self._streamer_thread.start()
+        logger.info(
+            "Streaming started (chunk=%dms)",
+            self._settings.streaming.chunk_size_ms,
+        )
+
+    def _streamer_loop(self) -> None:
+        """Wait for streaming to complete.
+
+        Audio is fed directly to the transcriber via the recorder's
+        streaming callback. This thread just updates the indicator
+        with partial text.
+        """
+        interval = self._settings.streaming.chunk_size_ms / 1000.0
+        while not self._streamer_stop.is_set():
+            # Get partial update and show on indicator
+            update = self._transcriber.get_update()
+            if update is not None and update.partial_text:
+                self._indicator.show_text(update.partial_text)
+
+            self._streamer_stop.wait(timeout=interval)
+
+    def _stop_streaming(self) -> None:
+        """Stop the streaming transcription thread and collect final result."""
+        # Clear the callback so no more audio is fed to the transcriber
+        self._recorder.set_streaming_callback(None)
+        self._streamer_stop.set()
+        if self._streamer_thread is not None:
+            self._streamer_thread.join(timeout=5.0)
+            self._streamer_thread = None
+
+        try:
+            self._streaming_result = self._transcriber.stop_streaming()
+        except TranscriptionError:
+            logger.warning("Streaming stop failed, will fall back to offline transcription")
+            self._streaming_result = None
+
+        logger.info("Streaming stopped")
+
+    def _process_audio(self) -> None:
+        """Process recorded audio through the full pipeline."""
         session_start = time.monotonic()
 
-        result = self._transcribe(audio)
+        # If streaming was active, use the streaming result.
+        if self._streaming_result is not None:
+            result: TranscriptionResult | None = self._streaming_result
+            self._streaming_result = None
+        else:
+            # Fallback: use offline transcription.
+            try:
+                audio = self._audio_queue.get(timeout=30)
+            except queue.Empty:
+                logger.error("No audio received after stop signal")
+                self._state = "IDLE"
+                return
+
+            result = self._transcribe(audio)
+
         if result is None:
             self._state = "IDLE"
             return
 
-        raw_text, info = result
-        if not raw_text:
+        if not result.text:
             logger.info("No speech detected, returning to IDLE")
             self._state = "IDLE"
             return
 
         # Apply vocabulary corrections before paste and LLM cleanup.
-        corrected_text = self._corrector.correct(raw_text)
+        corrected_text = self._corrector.correct(result.text)
 
         window_class = self._outputter.get_active_window_class()
-        raw_len = self._paste(corrected_text, info, window_class)
+        raw_len = self._paste(corrected_text, result.info, window_class)
         paste_time = time.monotonic()
 
         transcription_latency_ms = int((paste_time - session_start) * 1000)
         full_pipeline_latency_ms = int((time.monotonic() - session_start) * 1000)
 
         self._save_session(
-            raw_text,
+            result.text,
             corrected_text,
-            info,
+            result.info,
             window_class,
             transcription_latency_ms,
             full_pipeline_latency_ms,
@@ -185,7 +268,7 @@ class Pipeline:
 
         self._state = "IDLE"
 
-    def _transcribe(self, audio: np.ndarray) -> tuple[str, TranscriptionInfo] | None:
+    def _transcribe(self, audio: np.ndarray) -> TranscriptionResult | None:
         self._state = "TRANSCRIBING"
         try:
             return self._transcriber.transcribe(audio)
@@ -282,8 +365,14 @@ class Pipeline:
             self._recorder.stop_recording()
             logger.info("Stopped active recording on shutdown")
 
+        if self._streaming_enabled and self._streamer_thread is not None:
+            self._streamer_stop.set()
+            self._streamer_thread.join(timeout=2.0)
+            self._streamer_thread = None
+
         self._hotkey.stop()
         self._indicator.stop()
         if self._history is not None:
             self._history.close()
+        self._transcriber.shutdown()
         logger.info("Pipeline shut down gracefully")
