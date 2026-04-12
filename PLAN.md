@@ -7,49 +7,61 @@ Press a key. Speak. Text appears wherever your cursor is.
 
 ## Feature Set
 
-### Phase 1 — Core (get it working)
+### Phase 1 — Core (get it working) — ✅ COMPLETE
 
-- [ ] Global hotkey listener (default: F9, configurable)
-- [ ] Both toggle mode and push-to-talk mode (config flag)
-- [ ] Audio capture from microphone (sounddevice)
-- [ ] Transcription via faster-whisper (large-v3, int8, CUDA)
-- [ ] Auto-paste into active window via xdotool (OutputBackend)
-- [ ] Clipboard fallback if paste fails (pyperclip)
-- [ ] Sound cues on start and stop
-- [ ] Thin bar overlay indicator while recording (tkinter, top of screen)
+- [x] Global hotkey listener (default: F9, configurable)
+- [x] Both toggle mode and push-to-talk mode (config flag)
+- [x] Audio capture from microphone (sounddevice)
+- [x] Transcription via faster-whisper (large-v3, int8, CUDA)
+- [x] Auto-paste into active window via xdotool (OutputBackend)
+- [x] Clipboard fallback if paste fails (pyperclip)
+- [x] Sound cues on start and stop
+- [x] Thin bar overlay indicator while recording (tkinter, top of screen)
 
-### Phase 2 — Quality
+### Phase 2 — Quality — ✅ COMPLETE
 
-- [ ] Filler word removal (regex, configurable word list in config.toml)
-- [ ] Active window class detection (xdotool getwindowclassname)
-- [ ] Replace strategy: `replace_strategy` config sets default (`select` or `append`); blacklist overrides to `skip`; stale timeout (>5s) also skips
-- [ ] SQLite transcription history (every session saved with timestamp, app context, word count)
-- [ ] FTS5 full-text search over history
-- [ ] VAD via faster-whisper's bundled Silero VAD (`vad_filter=True` in transcribe call)
-- [ ] Desktop notifications via notify-send (fallback events, errors)
+- [x] Filler word removal (regex, configurable word list in config.toml)
+- [x] Active window class detection (xdotool getwindowclassname)
+- [x] Replace strategy: `replace_strategy` config sets default (`select` or `append`); blacklist overrides to `skip`; stale timeout (>5s) also skips
+- [x] SQLite transcription history (every session saved with timestamp, app context, word count)
+- [x] FTS5 full-text search over history
+- [x] VAD via faster-whisper's bundled Silero VAD (`vad_filter=True` in transcribe call)
+- [x] Desktop notifications via notify-send (fallback events, errors)
 
-### Phase 3 — AI Layer
+### Phase 3 — AI Layer — ✅ COMPLETE
 
-- [ ] Grammar cleanup via any OpenAI-compatible LLM endpoint (async, `openai` client)
-- [ ] Optimistic paste — paste raw text immediately, replace with cleaned text when LLM finishes
-- [ ] Replace respects stale timeout (>5s since paste → skip), then blacklist check, then executes strategy
-- [ ] Warmup ping on app start when `base_url` is localhost (with `keep_alive=0`)
+- [x] Grammar cleanup via any OpenAI-compatible LLM endpoint (async, `openai` client)
+- [x] Optimistic paste — paste raw text immediately, replace with cleaned text when LLM finishes
+- [x] Replace respects stale timeout (>5s since paste → skip), then blacklist check, then executes strategy
+- [x] Warmup ping on app start when `base_url` is localhost (with `keep_alive=0`)
 
-### Phase 4 — Polish & Testing
+### Phase 4 — Polish & Testing — ✅ COMPLETE
 
-- [ ] Unit tests for all modules (pytest, mocked audio + xdotool)
-- [ ] Integration tests — wav file through pipeline, assert WER within threshold
-- [ ] Regression benchmarks — LibriSpeech test-clean, 50 samples, WER baseline stored
-- [ ] Personal voice fixture recordings in tests/fixtures/
-- [ ] History viewer (CLI: search, list recent, word count stats)
-- [ ] Usage stats (total words dictated, sessions, estimated time saved)
-- [ ] Graceful shutdown (drain queues before exit)
-- [ ] Full error handling pass
+- [x] Unit tests for all modules (pytest, mocked audio + xdotool)
+- [x] Integration tests — wav file through pipeline, assert WER within threshold
+- [x] Regression benchmarks — LibriSpeech test-clean, 50 samples, WER baseline stored
+- [x] Personal voice fixture recordings in tests/fixtures/
+- [x] History viewer (CLI: search, list recent, word count stats)
+- [x] Usage stats (total words dictated, sessions, estimated time saved)
+- [x] Graceful shutdown (drain queues before exit)
+- [x] Full error handling pass
+
+### Phase 5 — Dual-Backend Transcription — ✅ COMPLETE
+
+- [x] Factory-based transcriber architecture (`make_transcriber()`)
+- [x] `TranscriberBase` ABC with shared interface and types
+- [x] `FasterWhisperTranscriber` — offline backend (large-v3, int8, CUDA)
+- [x] `CarelessWhisperTranscriber` — streaming backend (causal, real-time)
+- [x] Real-time partial text display on indicator bar (40px expanded)
+- [x] Thread-safe audio buffer with worker thread for GPU decode
+- [x] Streaming config section ([streaming]) with model, chunk_size_ms, beam_size
+- [x] Setup script for CarelessWhisper dependencies and HF auth
+- [x] Offline fallback when streaming fails to start
+- [x] Personal dictionary for vocabulary correction
 
 ### Maybe Later
 
 - [ ] Idea expansion mode (LLM expands rough voice notes into structured writeups)
-- [ ] Custom vocabulary / personal dictionary (post-correct Whisper misheard words)
 - [ ] Snippets / voice shortcuts (say a cue, expand to full text)
 - [ ] Transcription search UI (minimal GUI or rofi integration)
 - [ ] Per-app profiles (different post-processing per active window)
@@ -182,6 +194,9 @@ Install dev dependencies: `uv sync --group dev`
 run:
     uv run main.py
 
+debug:
+    uv run main.py --debug
+
 test:
     uv run pytest
 
@@ -196,6 +211,12 @@ typecheck:
 
 benchmark:
     uv run pytest tests/test_benchmark.py -v
+
+deadcode:
+    uv run vulture vox/ tests/ --min-confidence 80
+
+setup-streaming:
+    bash scripts/setup_streaming.sh
 
 install-hooks:
     uv run pre-commit install
@@ -289,6 +310,15 @@ enabled = true
 start_sound = "assets/start.wav"
 stop_sound = "assets/stop.wav"
 volume = 0.7
+
+[streaming]
+enabled = false
+model = "small"           # base, small, large-v2
+chunk_size_ms = 300       # decode frequency
+beam_size = 0             # 0 = greedy, 1+ = beam search
+
+[dictionary]
+db_path = "~/.local/share/vox/dictionary.db"
 ```
 
 ---
@@ -329,6 +359,8 @@ CREATE TABLE stats (
 
 ## State Machine
 
+### Offline mode:
+
 ```
 IDLE
   │  (hotkey pressed)
@@ -346,6 +378,23 @@ PASTING                                       │
   │                                    (check blacklist)
   ▼                                           │
 IDLE ◄──────── replace / skip / append ───────┘
+```
+
+### Streaming mode:
+
+```
+IDLE
+  │  (hotkey pressed)
+  ▼
+RECORDING ◄──── feed_chunk() from sounddevice callback
+  │              (CWWorkerThread decodes in background)
+  │              (partial text shown on indicator)
+  │  (hotkey pressed again)
+  ▼
+PASTING
+  │
+  ▼
+IDLE
 ```
 
 ---
@@ -377,5 +426,13 @@ uv init vox
 cd vox
 uv add faster-whisper sounddevice pynput pyperclip openai
 uv add --group dev pytest jiwer datasets ruff pyright pre-commit
+uv add --extra streaming   # optional: CarelessWhisper streaming support
 uv run main.py
+```
+
+### Streaming Setup (Optional)
+
+```bash
+git submodule update --init   # fetch WhisperRT-Streaming
+just setup-streaming          # install CUDA 13 deps, login to HF
 ```

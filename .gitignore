@@ -22,6 +22,9 @@ __pycache__/
 dist/
 build/
 
+# Qwen Code context/review caches
+.qwen/
+
 # Environment files
 .env
 .env.*

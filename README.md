@@ -36,8 +36,10 @@ It runs Whisper locally on your GPU, cleans up your speech with an LLM of your c
 - **Recording indicator** — thin bar at the top of the screen while the mic is live (tkinter, click-through DOCK window)
 - **Sound cues** — subtle start/stop beeps with configurable volume
 - **Full history** — every transcription saved to SQLite with FTS5 full-text search
+- **Personal dictionary** — correct Whisper's persistent misrecognitions (say "vox dict add <word> <correction>")
 - **Web UI** — browse and search your transcription history in a minimal Flask interface
-- **CLI tools** — `vox history`, `vox search`, `vox stats` from the command line
+- **CLI tools** — `vox history`, `vox search`, `vox stats`, `vox dict` from the command line
+- **Real-time streaming** — optional CarelessWhisper backend shows partial text on the indicator as you speak
 - **Privacy-first** — audio never leaves your machine. Transcribed text stays local when using a local LLM; sent only to the configured endpoint if using a cloud provider
 
 ---
@@ -74,6 +76,30 @@ ollama pull phi3-mini
 | Groq | `https://api.groq.com/openai/v1` | `llama-3.1-8b-instant` |
 | OpenRouter | `https://openrouter.ai/api/v1` | `google/gemini-flash-1.5` |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+
+---
+
+## Streaming Transcription (Optional)
+
+Vox supports real-time streaming transcription via [CarelessWhisper](https://huggingface.co/MLSpeech/CarelessWhisper-Streaming), showing partial text on the indicator bar as you speak. This requires an NVIDIA GPU with CUDA 13 support and ~2.5GB VRAM for the `small` model.
+
+```bash
+just setup-streaming   # clone WhisperRT-Streaming, sync deps, login to HF
+```
+
+Then enable in `config.toml`:
+
+```toml
+[streaming]
+enabled = true
+model = "small"           # base, small, large-v2
+chunk_size_ms = 300       # decode frequency
+beam_size = 0             # 0 = greedy, 1+ = beam search
+```
+
+When streaming is enabled, the indicator bar expands to 40px with 12px font to display live partial transcriptions. The indicator collapses back to normal height when idle.
+
+**Offline fallback:** If streaming fails to start, Vox falls back to the standard faster-whisper offline transcription automatically.
 
 ---
 
@@ -223,15 +249,21 @@ enabled = false
 
 <img width="1440" height="1652" alt="image" src="https://github.com/user-attachments/assets/9e9161e6-f700-4180-93a9-80233d3bcfe6" />
 
-**Threading model:** The critical path (transcribe → process → paste) runs inline on the Main thread. Three daemon threads run alongside:
+**Threading model:** The critical path (transcribe → process → paste) runs inline on the Main thread for offline transcription. With streaming enabled, a dedicated `CWWorkerThread` handles GPU decode to avoid blocking the sounddevice callback.
+
+Daemon threads:
 
 - **HotkeyThread** — pynput listener, sends `start`/`stop`/`shutdown` to `control_queue`
 - **IndicatorThread** — tkinter mainloop, polls `indicator_queue` every 50ms
 - **LLMThread** — spawned per-session after paste, runs cleanup, dies on completion
+- **StreamerThread** — polls transcriber for partial updates, drives indicator text
+- **CWWorkerThread** — CarelessWhisper GPU decode loop (streaming only)
 
 **State machine:** `IDLE → RECORDING → TRANSCRIBING → PROCESSING → PASTING → IDLE`
 
 LLM cleanup runs asynchronously alongside `IDLE` — a new recording can start while cleanup is in progress.
+
+**Streaming state machine:** `IDLE → RECORDING (streaming) → PASTING → IDLE` — transcription runs inline via the worker thread, bypassing TRANSCRIBING and PROCESSING states for lower latency.
 
 ---
 
@@ -288,29 +320,33 @@ vox/
 │   ├── pipeline.py          # State machine, thread wiring, main loop
 │   ├── hotkey.py            # pynput listener, toggle + push-to-talk
 │   ├── recorder.py          # sounddevice audio capture
-│   ├── transcriber.py       # faster-whisper wrapper
-│   ├── processor.py         # LLM cleanup via OpenAI-compatible API
+│   ├── transcriber.py       # Factory function, delegates to backends
+│   ├── transcriber_base.py  # ABC: shared interface and types
+│   ├── transcriber_fw.py    # Faster-whisper backend (offline)
+│   ├── transcriber_cw.py    # CarelessWhisper backend (streaming)
+│   ├── transcriber_cw_decode.py  # Decoding options for CW
+│   ├── processor.py         # Filler words + LLM cleanup
 │   ├── output.py            # OutputBackend abstraction, xdotool + clipboard
-│   ├── indicator.py         # tkinter thin bar overlay
+│   ├── indicator.py         # tkinter thin bar overlay + live text
 │   ├── sounds.py            # WAV loading, playback, tone generation
 │   ├── history.py           # SQLite + FTS5 full-text search
+│   ├── dictionary.py        # Personal vocabulary corrections
 │   └── web.py               # Flask web UI for history
 │
 ├── tests/
 │   ├── conftest.py          # Shared fixtures
-│   ├── test_config.py
-│   ├── test_hotkey.py
-│   ├── test_recorder.py
-│   ├── test_transcriber.py
-│   ├── test_processor.py
-│   ├── test_output.py
-│   ├── test_indicator.py
-│   ├── test_sounds.py
-│   ├── test_history.py
-│   ├── test_pipeline.py
-│   ├── test_integration.py
-│   ├── test_benchmark.py
+│   ├── test_transcriber.py  # Factory function tests
+│   ├── test_transcriber_base.py  # ABC contract tests
+│   ├── test_transcriber_fw.py   # Faster-whisper backend tests
+│   ├── test_transcriber_cw.py   # CarelessWhisper streaming tests
+│   ├── test_pipeline.py     # Pipeline state machine tests
+│   ├── test_indicator.py    # Indicator window tests
+│   ├── test_integration.py  # End-to-end pipeline tests
+│   ├── test_benchmark.py    # WER regression benchmarks
 │   └── benchmark_charts/    # Generated PNG charts
+│
+├── third_party/
+│   └── WhisperRT-Streaming/  # CarelessWhisper model (git submodule)
 │
 └── assets/
     ├── start.wav            # Recording start sound cue
@@ -349,7 +385,9 @@ just lint         # ruff check
 just fmt          # ruff format (auto-fix)
 just typecheck    # pyright strict check
 just benchmark    # quick WER regression test
+just deadcode     # vulture dead code detection
 just web          # launch Flask history UI
+just setup-streaming  # install CarelessWhisper streaming deps
 ```
 
 ### Pre-commit Hooks
