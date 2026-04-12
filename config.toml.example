@@ -209,6 +209,62 @@ replacements = {
 
 
 # ─────────────────────────────────────────────
+# Streaming
+# ─────────────────────────────────────────────
+[streaming]
+
+# Enable real-time streaming transcription.
+# When false (default), Vox uses faster-whisper for offline,
+# non-streaming transcription — fast, low VRAM, proven.
+# When true, Vox uses CarelessWhisper (causal streaming model)
+# that emits partial transcription results while you speak.
+# The indicator bar shows live text that updates every chunk.
+#
+# Streaming adds ~200ms-400ms latency per chunk (vs. waiting
+# until stop). You see text appear in real-time instead of
+# all at once after you stop recording.
+#
+# Requirements: GPU recommended. Run `just setup-streaming`
+# to clone the repo, install deps, and log in to Hugging Face.
+enabled = false
+
+# Streaming model name.
+# CarelessWhisper uses different checkpoints than faster-whisper.
+# Supported models, languages, and chunk sizes:
+#
+#   Model       Languages          Chunk sizes (ms)
+#   ──────────  ─────────────────  ────────────────────────────────
+#   base        English only       40, 100, 200, 300
+#   small       English only       40, 100, 200, 300, 1000
+#   large-v2    English only       40, 100, 200, 300, 1000
+#
+#   large-v2 (multilingual: true)
+#               EN, FR, ES, DE, PT  300 only
+#
+# Must be set explicitly when streaming is enabled.
+# Does NOT fall back to [transcription].model — CarelessWhisper
+# and faster-whisper use different checkpoints.
+model = "large-v2"
+
+# Audio chunk size in milliseconds. Determines how often partial
+# text is updated. Smaller = more responsive, lower accuracy.
+# 300 = best accuracy (~5.3% WER on LibriSpeech test-clean),
+#       lowest compute, recommended for most users.
+# 200 = good accuracy/latency tradeoff (~5.9% WER).
+# 100 = lower latency, slightly lower accuracy (~6.3% WER).
+# 40  = minimum chunk size, noticeable WER degradation (~7.8%).
+#
+# Note: Must match one of the supported chunk sizes for the model.
+chunk_size_ms = 300
+
+# Beam search size for streaming decode.
+# 0 = greedy decoding (fastest, ~81ms per-frame latency).
+# 5 = beam search (~110ms latency, better accuracy).
+# Ignored when streaming is disabled (faster-whisper always uses beam=5).
+beam_size = 0
+
+
+# ─────────────────────────────────────────────
 # Indicator
 # ─────────────────────────────────────────────
 [indicator]

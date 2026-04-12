@@ -1,5 +1,7 @@
 justfile_dir := justfile_directory()
-ld_lib_path := justfile_dir + "/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:" + justfile_dir + "/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib"
+# faster-whisper uses CUDA 12 (cublas, cudnn), CarelessWhisper/PyTorch uses CUDA 13 (cu13).
+# Both must be on LD_LIBRARY_PATH so either backend can find its libs at runtime.
+ld_lib_path := justfile_dir + "/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:" + justfile_dir + "/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:" + justfile_dir + "/.venv/lib/python3.12/site-packages/nvidia/cu13/lib"
 
 run:
     LD_LIBRARY_PATH="{{ld_lib_path}}" uv run main.py
@@ -48,3 +50,9 @@ search query:
 
 stats:
     uv run main.py stats
+
+deadcode:
+    uv run vulture vox/ tests/ --min-confidence 80
+
+setup-streaming:
+    bash scripts/setup_streaming.sh

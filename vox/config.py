@@ -78,6 +78,14 @@ class DictionarySettings:
 
 
 @dataclass(frozen=True)
+class StreamingSettings:
+    enabled: bool
+    model: str
+    chunk_size_ms: int
+    beam_size: int
+
+
+@dataclass(frozen=True)
 class SoundsSettings:
     enabled: bool
     start_sound: str
@@ -96,6 +104,7 @@ class Settings:
     history: HistorySettings
     sounds: SoundsSettings
     dictionary: DictionarySettings
+    streaming: StreamingSettings
 
 
 def _load(path: Path | None = None) -> dict[str, Any]:
@@ -138,6 +147,7 @@ def _build_settings(raw: dict[str, Any]) -> Settings:
     history_raw = raw.get("history", {})
     sounds_raw = raw.get("sounds", {})
     dictionary_raw = raw.get("dictionary", {})
+    streaming_raw = raw.get("streaming", {})
 
     api_key = llm_raw.get("api_key", "") or ""
     env_key = os.environ.get("VOX_LLM_API_KEY")
@@ -209,6 +219,12 @@ def _build_settings(raw: dict[str, Any]) -> Settings:
         dictionary=DictionarySettings(
             enabled=dictionary_raw.get("enabled", True),
             replacements=dictionary_raw.get("replacements") or {},
+        ),
+        streaming=StreamingSettings(
+            enabled=streaming_raw.get("enabled", False),
+            model=streaming_raw.get("model", ""),
+            chunk_size_ms=streaming_raw.get("chunk_size_ms", 300),
+            beam_size=streaming_raw.get("beam_size", 0),
         ),
     )
 

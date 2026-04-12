@@ -56,3 +56,13 @@ enabled = true
 start_sound = "assets/start.wav"
 stop_sound = "assets/stop.wav"
 volume = 0.7
+
+[dictionary]
+enabled = true
+replacements = {}
+
+[streaming]
+enabled = false
+model = "small"
+chunk_size_ms = 300
+beam_size = 0

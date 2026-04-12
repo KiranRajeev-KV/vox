@@ -28,6 +28,19 @@ dev = [
     "pre-commit",
     "matplotlib>=3.10.8",
     "soundfile>=0.13.1",
+    "vulture>=2.16",
+]
+
+[project.optional-dependencies]
+streaming = [
+    "torch>=2.6.0",
+    "pytorch-lightning>=2.5.0",
+    "huggingface-hub>=0.20.0",
+    "pyaudio>=0.2.14",
+    "tiktoken>=0.7.0",
+    "numba>=0.60.0",
+    "praatio>=6.2.0",
+    "soundfile>=0.12.0",
 ]
 
 [tool.pytest.ini_options]

@@ -42,3 +42,5 @@ Thumbs.db
 # Benchmark artifacts
 tests/benchmark_charts/
 tests/benchmark_results.jsonl
+
+third_party/
