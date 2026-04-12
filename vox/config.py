@@ -72,6 +72,12 @@ class HistorySettings:
 
 
 @dataclass(frozen=True)
+class DictionarySettings:
+    enabled: bool
+    replacements: dict[str, str]
+
+
+@dataclass(frozen=True)
 class SoundsSettings:
     enabled: bool
     start_sound: str
@@ -89,6 +95,7 @@ class Settings:
     indicator: IndicatorSettings
     history: HistorySettings
     sounds: SoundsSettings
+    dictionary: DictionarySettings
 
 
 def _load(path: Path | None = None) -> dict[str, Any]:
@@ -130,6 +137,7 @@ def _build_settings(raw: dict[str, Any]) -> Settings:
     indicator_raw = raw.get("indicator", {})
     history_raw = raw.get("history", {})
     sounds_raw = raw.get("sounds", {})
+    dictionary_raw = raw.get("dictionary", {})
 
     api_key = llm_raw.get("api_key", "") or ""
     env_key = os.environ.get("VOX_LLM_API_KEY")
@@ -197,6 +205,10 @@ def _build_settings(raw: dict[str, Any]) -> Settings:
             start_sound=sounds_raw.get("start_sound", "assets/start.wav"),
             stop_sound=sounds_raw.get("stop_sound", "assets/stop.wav"),
             volume=sounds_raw.get("volume", 0.7),
+        ),
+        dictionary=DictionarySettings(
+            enabled=dictionary_raw.get("enabled", True),
+            replacements=dictionary_raw.get("replacements") or {},
         ),
     )
 

@@ -182,6 +182,33 @@ replace_blacklist = [
 
 
 # ─────────────────────────────────────────────
+# Dictionary
+# ─────────────────────────────────────────────
+[dictionary]
+
+# Enable vocabulary correction — fixes systematic Whisper mishearings
+# of names, technical terms, and domain-specific vocabulary.
+# Runs after transcription, before paste and LLM cleanup.
+enabled = true
+
+# Word mappings. Keys are what Whisper says, values are what you want.
+# Matching is case-insensitive substring replacement.
+# Use specific enough keys to avoid accidental matches:
+#   "pie torch" = "PyTorch"     (good — specific)
+#   "torch" = "PyTorch"         (bad — matches inside other words)
+#
+# Order does not matter — longest keys are always tried first.
+replacements = {
+    "voice text engine" = "Vox",
+    "co pilot" = "Copilot",
+    "pie torch" = "PyTorch",
+    "tenser flow" = "TensorFlow",
+    "arch linux" = "Arch Linux",
+    "jay son" = "JSON",
+}
+
+
+# ─────────────────────────────────────────────
 # Indicator
 # ─────────────────────────────────────────────
 [indicator]

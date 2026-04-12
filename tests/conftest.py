@@ -10,6 +10,7 @@ import pytest
 
 from vox.config import (
     AudioSettings,
+    DictionarySettings,
     HistorySettings,
     HotkeySettings,
     IndicatorSettings,
@@ -217,6 +218,15 @@ def make_sounds_settings(**kwargs: Any) -> SoundsSettings:
     return SoundsSettings(**defaults)
 
 
+def make_dictionary_settings(**kwargs: Any) -> DictionarySettings:
+    defaults: dict[str, Any] = {
+        "enabled": True,
+        "replacements": {},
+    }
+    defaults.update(kwargs)
+    return DictionarySettings(**defaults)
+
+
 def make_full_settings(**kwargs: Any) -> Settings:
     return Settings(
         hotkey=kwargs.get("hotkey", make_hotkey_settings()),
@@ -227,4 +237,5 @@ def make_full_settings(**kwargs: Any) -> Settings:
         indicator=kwargs.get("indicator", make_indicator_settings()),
         history=kwargs.get("history", make_history_settings()),
         sounds=kwargs.get("sounds", make_sounds_settings()),
+        dictionary=kwargs.get("dictionary", make_dictionary_settings()),
     )

@@ -13,6 +13,7 @@ from faster_whisper.transcribe import TranscriptionInfo
 from openai import OpenAI
 
 from vox.config import Settings
+from vox.dictionary import VocabularyCorrector
 from vox.history import History, SessionRecord
 from vox.hotkey import HotkeyListener
 from vox.indicator import Indicator
@@ -44,6 +45,7 @@ class Pipeline:
 
         self._recorder = Recorder(settings.audio, self._audio_queue)
         self._transcriber = Transcriber(settings.transcription)
+        self._corrector = VocabularyCorrector(settings.dictionary)
         self._outputter = Outputter(settings.output)
         self._llm_cleaner = LLMCleaner(settings.llm)
         self._indicator = Indicator(settings.indicator)
@@ -154,8 +156,11 @@ class Pipeline:
             self._state = "IDLE"
             return
 
+        # Apply vocabulary corrections before paste and LLM cleanup.
+        corrected_text = self._corrector.correct(raw_text)
+
         window_class = self._outputter.get_active_window_class()
-        raw_len = self._paste(raw_text, info, window_class)
+        raw_len = self._paste(corrected_text, info, window_class)
         paste_time = time.monotonic()
 
         transcription_latency_ms = int((paste_time - session_start) * 1000)
@@ -163,7 +168,7 @@ class Pipeline:
 
         self._save_session(
             raw_text,
-            raw_text,
+            corrected_text,
             info,
             window_class,
             transcription_latency_ms,
@@ -173,7 +178,7 @@ class Pipeline:
         if self._settings.llm.enabled:
             threading.Thread(
                 target=self._llm_replace,
-                args=(raw_text, raw_len, window_class, paste_time),
+                args=(corrected_text, raw_len, window_class, paste_time),
                 name="LLMThread",
                 daemon=True,
             ).start()

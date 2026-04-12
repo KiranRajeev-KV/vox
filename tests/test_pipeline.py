@@ -16,6 +16,7 @@ from vox.transcriber import TranscriptionError
 def _make_mock_settings(**kwargs: object) -> Settings:
     from tests.conftest import (
         make_audio_settings,
+        make_dictionary_settings,
         make_history_settings,
         make_hotkey_settings,
         make_indicator_settings,
@@ -34,6 +35,7 @@ def _make_mock_settings(**kwargs: object) -> Settings:
         "indicator": make_indicator_settings(),
         "history": make_history_settings(enabled=True),
         "sounds": make_sounds_settings(),
+        "dictionary": make_dictionary_settings(),
     }
     defaults.update(kwargs)
     return Settings(**defaults)  # type: ignore[arg-type]
