@@ -59,12 +59,11 @@ volume = 0.7
 
 [dictionary]
 enabled = true
-replacements = {}
+
+[dictionary.replacements]
 
 [streaming]
 enabled = false
 model = "small"
 chunk_size_ms = 300
 beam_size = 0
-[dictionary]
-[dictionary.replacements]
