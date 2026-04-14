@@ -173,7 +173,7 @@ sample_rate = 16000
 channels = 1
 
 [transcription]
-model = "large-v3"                # large-v3, large-v3-turbo, medium, small, tiny
+model = "large-v3-turbo"              # large-v3, large-v3-turbo, medium, small, tiny
 device = "cuda"                   # "cuda" or "cpu"
 compute_type = "int8"             # "int8", "float16", "float32"
 language = ""                     # "" = auto-detect, or "en", "ml", "hi"
